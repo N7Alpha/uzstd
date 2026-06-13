@@ -1,0 +1,190 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  produce:
+    name: produce-${{ matrix.id }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: linux-x64-gcc
+            os: ubuntu-24.04
+            cc: gcc
+            cflags: -std=c99 -O2 -Wall -Wextra -pedantic
+          - id: linux-x64-clang
+            os: ubuntu-24.04
+            cc: clang
+            cflags: -std=c99 -O2 -Wall -Wextra -pedantic
+          - id: linux-arm64-gcc
+            os: ubuntu-24.04-arm
+            cc: gcc
+            cflags: -std=c99 -O2 -Wall -Wextra -pedantic
+          - id: macos-arm64-clang
+            os: macos-14
+            cc: clang
+            cflags: -std=c99 -O2 -Wall -Wextra -pedantic
+          - id: windows-x64-msvc
+            os: windows-2022
+            cc: cl
+            cflags: /nologo /TC /O2 /W4
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install zstd on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y zstd
+      - name: Install zstd on macOS
+        if: runner.os == 'macOS'
+        run: brew install zstd
+      - name: Install zstd on Windows
+        if: runner.os == 'Windows'
+        run: choco install zstandard -y
+      - name: Build and test
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          CC: ${{ matrix.cc }}
+          CFLAGS: ${{ matrix.cflags }}
+          ARTIFACT_DIR: artifacts/${{ matrix.id }}
+        run: tools/ci_interop.sh
+      - name: Build with MSVC
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          if errorlevel 1 exit /b %errorlevel%
+          cl /nologo /TC /O2 /W4 uzstd.c /Fe:uzstd.exe
+          if errorlevel 1 exit /b %errorlevel%
+          if not exist uzstd.exe exit /b 1
+      - name: Test with MSVC binary
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          ARTIFACT_DIR: artifacts/${{ matrix.id }}
+        run: |
+          ls -l uzstd.exe
+          export UZSTD_EXE=./uzstd.exe
+          export ZSTD_EXE=/c/ProgramData/chocolatey/bin/zstd.exe
+          export SKIP_BUILD=1
+          export PYTHON=python
+          "$ZSTD_EXE" --version
+          tools/ci_interop.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.id }}
+          path: artifacts/${{ matrix.id }}
+
+  produce-s390x:
+    name: produce-linux-s390x-gcc
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: uraimo/run-on-arch-action@v3
+        with:
+          arch: s390x
+          distro: ubuntu22.04
+          githubToken: ${{ github.token }}
+          install: |
+            apt-get update -q -y
+            apt-get install -q -y gcc zstd python3 ca-certificates
+          run: |
+            python3 - <<'PY'
+            import sys
+            assert sys.byteorder == 'big', sys.byteorder
+            print('byteorder=big')
+            PY
+            CC=gcc CFLAGS="-std=c99 -O2 -Wall -Wextra -pedantic" ARTIFACT_DIR=artifacts/linux-s390x-gcc tools/ci_interop.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-s390x-gcc
+          path: artifacts/linux-s390x-gcc
+
+  consume:
+    name: consume-${{ matrix.id }}
+    needs: [produce, produce-s390x]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: linux-x64-gcc
+            os: ubuntu-24.04
+            cc: gcc
+            cflags: -std=c99 -O2 -Wall -Wextra -pedantic
+          - id: linux-x64-clang
+            os: ubuntu-24.04
+            cc: clang
+            cflags: -std=c99 -O2 -Wall -Wextra -pedantic
+          - id: linux-arm64-gcc
+            os: ubuntu-24.04-arm
+            cc: gcc
+            cflags: -std=c99 -O2 -Wall -Wextra -pedantic
+          - id: macos-arm64-clang
+            os: macos-14
+            cc: clang
+            cflags: -std=c99 -O2 -Wall -Wextra -pedantic
+          - id: windows-x64-msvc
+            os: windows-2022
+            cc: cl
+            cflags: /nologo /TC /O2 /W4
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloaded
+      - name: Verify mesh artifacts
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          CC: ${{ matrix.cc }}
+          CFLAGS: ${{ matrix.cflags }}
+          DOWNLOAD_DIR: downloaded
+        run: tools/verify_mesh.sh
+      - name: Build mesh verifier with MSVC
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          if errorlevel 1 exit /b %errorlevel%
+          cl /nologo /TC /O2 /W4 uzstd.c /Fe:uzstd_mesh.exe
+          if errorlevel 1 exit /b %errorlevel%
+          if not exist uzstd_mesh.exe exit /b 1
+      - name: Verify mesh artifacts with MSVC binary
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          DOWNLOAD_DIR: downloaded
+        run: |
+          ls -l uzstd_mesh.exe
+          UZSTD_EXE=./uzstd_mesh.exe SKIP_BUILD=1 PYTHON=python tools/verify_mesh.sh
+
+  consume-s390x:
+    name: consume-linux-s390x-gcc
+    needs: [produce, produce-s390x]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloaded
+      - uses: uraimo/run-on-arch-action@v3
+        with:
+          arch: s390x
+          distro: ubuntu22.04
+          githubToken: ${{ github.token }}
+          install: |
+            apt-get update -q -y
+            apt-get install -q -y gcc python3 ca-certificates
+          run: |
+            python3 - <<'PY'
+            import sys
+            assert sys.byteorder == 'big', sys.byteorder
+            print('byteorder=big')
+            PY
+            CC=gcc CFLAGS="-std=c99 -O2 -Wall -Wextra -pedantic" DOWNLOAD_DIR=downloaded tools/verify_mesh.sh
