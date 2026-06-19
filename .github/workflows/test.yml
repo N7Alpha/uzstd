@@ -105,6 +105,45 @@ jobs:
           name: linux-s390x-gcc
           path: artifacts/linux-s390x-gcc
 
+  nds-rom:
+    name: nds-rom-libretro
+    runs-on: ubuntu-24.04
+    container: devkitpro/devkitarm:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify container tools
+        run: |
+          cc --version
+          cmake --version
+          git --version
+          ninja --version
+          python3 --version
+          /opt/devkitpro/devkitARM/bin/arm-none-eabi-gcc --version
+          /opt/devkitpro/tools/bin/ndstool '-?'
+      - name: Build melonDS DS libretro core without Qt
+        run: |
+          git clone --depth 1 https://github.com/JesseTG/melonds-ds.git .bench/melonds-ds-src
+          cmake -S .bench/melonds-ds-src -B .bench/melonds-ds-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_OPENGL=OFF
+          cmake --build .bench/melonds-ds-build
+          mkdir -p .bench/melonds-ds-dist/cores
+          cp "$(find .bench/melonds-ds-build -name melondsds_libretro.so -print -quit)" .bench/melonds-ds-dist/cores/
+      - name: Build and run NDS ROM in libretro
+        env:
+          DEVKITPRO: /opt/devkitpro
+          DEVKITARM: /opt/devkitpro/devkitARM
+          LIBRETRO_CORE: ${{ github.workspace }}/.bench/melonds-ds-dist/cores/melondsds_libretro.so
+        run: tools/ci_nds_rom.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nds-rom-libretro
+          path: |
+            nds/uzstd_nds_bench.nds
+            nds/build/arm9.elf
+            nds/build/arm7.elf
+            bench/nds_emulator_results.json
+
   consume:
     name: consume-${{ matrix.id }}
     needs: [produce, produce-s390x]
