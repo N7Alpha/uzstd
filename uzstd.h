@@ -261,7 +261,7 @@ static uzstd__u32 uzstd__find(uzstd__ctx *cx, const uzstd__u8 *base, size_t i, s
         m = cx->chain[cand];
     }
     if (rep_len >= 3 && rep_len + 3 > cb) { *odist = rep_dist; return rep_len; }
-    if (cb >= 4 && cb_dist) { *odist = cb_dist; return cb; }
+    if (cb >= 4) { *odist = cb_dist; return cb; } /* cb>3 only when cb_dist was set (>0) */
     return 0;
 }
 
@@ -321,7 +321,7 @@ static size_t uzstd__seq_table(uzstd__u8 *d, size_t cap, const uzstd__u32 *cnt, 
     for (s = 0; s <= max_sym; s++) if (cnt[s]) { distinct++; last = s; }
     if (cap < 8) return 0;
     if (distinct == 1) { *mode = 1; d[0] = (uzstd__u8)last; uzstd__fse_rle_ct(ct); return 1; }
-    log = total > 1 ? uzstd__highbit(total-1) - 2 : 5;
+    log = uzstd__highbit(total-1) - 2; /* total >= 2 here (distinct >= 2); floor applied below */
     s = uzstd__highbit((uzstd__u32)max_sym) + 2;
     if (log < s) log = s;
     if (log < 5) log = 5;
@@ -993,6 +993,7 @@ static int uzstd__block_d(uzstd__dctx *cx, uzstd__u8 **op_io, uzstd__u8 *oend,
         uzstd__br b;
         uzstd__u32 sll, sof, sml;
         int modes;
+        if (ip >= iend) return 0; /* need the sequence-modes byte */
         modes = *ip++;
         if (modes & 3) return 0; /* reserved bits */
         for (i = 0; i < 3; i++) {
