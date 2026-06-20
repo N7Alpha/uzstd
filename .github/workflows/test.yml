@@ -80,6 +80,38 @@ jobs:
           name: ${{ matrix.id }}
           path: artifacts/${{ matrix.id }}
 
+  fuzz:
+    name: fuzz-${{ matrix.id }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: linux-x64
+            os: ubuntu-24.04
+          - id: macos-arm64
+            os: macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build fuzzer with ASan + UBSan
+        run: |
+          clang -std=c99 -O1 -g -fno-omit-frame-pointer \
+            -fsanitize=address,undefined -fno-sanitize-recover=all \
+            -Wall -Wextra -pedantic \
+            tools/fuzz_forever.c -o uzstd_fuzz
+      - name: Fuzz (~90s; 15000 iterations under sanitizers)
+        env:
+          UZSTD_FUZZ_MAX_ITERS: "15000"
+          UZSTD_FUZZ_MAX_CRASHES: "1"
+          UZSTD_FUZZ_DIR: fuzz_artifacts
+        run: ./uzstd_fuzz
+      - name: Upload crash artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.id }}
+          path: fuzz_artifacts
+
   produce-s390x:
     name: produce-linux-s390x-gcc
     runs-on: ubuntu-24.04
