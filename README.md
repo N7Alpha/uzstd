@@ -95,17 +95,17 @@ without debug symbols.
 
 | Target | Compiler | Config | Compile ms | .o bytes |
 | --- | --- | --- | --- | --- |
-| uzstd.h | clang | -Os | 355.3 | 22016 |
-| uzstd.h | clang | -O2 | 246.8 | 24264 |
-| uzstd.h | clang | -O3 | 289.9 | 27776 |
-| uzstd compressor only | clang | -Os | 144.5 | 14296 |
+| uzstd.h | clang | -Os | 355.3 | 22208 |
+| uzstd.h | clang | -O2 | 246.8 | 24680 |
+| uzstd.h | clang | -O3 | 289.9 | 28208 |
+| uzstd compressor only | clang | -Os | 144.5 | 14480 |
 | uzstd decompressor only | clang | -Os | 95.0 | 8984 |
-| uzstd.h | gcc-15 | -Os | 429.0 | 19568 |
-| uzstd.h | gcc-15 | -O2 | 414.9 | 23744 |
-| uzstd.h | gcc-15 | -O3 | 567.0 | 32288 |
-| uzstd compressor only | gcc-15 | -Os | 199.0 | 11928 |
+| uzstd.h | gcc-15 | -Os | 429.0 | 19672 |
+| uzstd.h | gcc-15 | -O2 | 414.9 | 24312 |
+| uzstd.h | gcc-15 | -O3 | 567.0 | 33072 |
+| uzstd compressor only | gcc-15 | -Os | 199.0 | 12040 |
 | uzstd decompressor only | gcc-15 | -Os | 157.8 | 8864 |
-| uzstd.h | tcc | | 7.4 | 47675 |
+| uzstd.h | tcc | -Os | 7.4 | 47947 |
 | zstd core v1.5.7 unity | clang | -O3 no-dict | 3772.7 | 560928 |
 | zstd core v1.5.7 unity | gcc-15 | -O3 no-dict | 12815.0 | 801688 |
 
@@ -113,7 +113,7 @@ without debug symbols.
 
 | Component | Lines | Note |
 | --- | --- | --- |
-| uzstd.h | 1152 | single-header codec |
+| uzstd.h | 1157 | single-header codec |
 | zstd core v1.5.7 | 25944 | common+compress+decompress, no dictBuilder/legacy/deprecated/mt |
 
 ### Throughput graphs

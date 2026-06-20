@@ -216,9 +216,6 @@ static int uzstd__mlcode(uzstd__u32 m) { /* m = match_length - 3 */
 
 /* ---------------- compression context ---------------- */
 #define UZSTD__BLOCK_MAX  (128*1024)
-#define UZSTD__MAX_SEQ    (UZSTD__BLOCK_MAX/3 + 8)
-#define UZSTD__HASH_LOG   17
-#define UZSTD__TMP_CAP    (UZSTD__BLOCK_MAX + 8192)
 
 typedef struct { uzstd__u32 ll, ml, ov; } uzstd__seq; /* lit len, match len, offset value */
 typedef struct {
@@ -227,10 +224,11 @@ typedef struct {
     uzstd__u8  *lit, *tmp;
     uzstd__u32 rep[3];
     int nseq; uzstd__u32 nlit;
-    int depth, lazy;
+    int depth, lazy, hash_shift;
+    size_t tmp_cap;
 } uzstd__ctx;
 
-static uzstd__u32 uzstd__hash(uzstd__u32 v) { return (v * 2654435761u) >> (32 - UZSTD__HASH_LOG); }
+static uzstd__u32 uzstd__hash(uzstd__u32 v, int shift) { return (v * 2654435761u) >> shift; }
 
 static uzstd__u32 uzstd__mlen(const uzstd__u8 *a, const uzstd__u8 *b, const uzstd__u8 *end) {
     const uzstd__u8 *bs = b; /* count match length of b vs a, b limited by end */
@@ -284,7 +282,7 @@ static uzstd__u32 uzstd__offval(uzstd__ctx *cx, uzstd__u32 d, uzstd__u32 ll) {
     return ov;
 }
 
-#define UZSTD__INS(p) do { uzstd__u32 h_ = uzstd__hash(uzstd__read32(base+(p))); \
+#define UZSTD__INS(p) do { uzstd__u32 h_ = uzstd__hash(uzstd__read32(base+(p)), cx->hash_shift); \
     cx->chain[p] = cx->htab[h_]; cx->htab[h_] = (uzstd__u32)(p)+1; } while (0)
 
 /* parse block [bstart, bstart+bsize) into cx->seqs / cx->lit */
@@ -620,7 +618,7 @@ static size_t uzstd__compress_block(uzstd__ctx *cx, uzstd__u8 *dst, const uzstd_
     }
     if (n >= 16) {
         uzstd__parse(cx, base, bstart, n);
-        {   uzstd__u8 *t = cx->tmp, *tend = cx->tmp + UZSTD__TMP_CAP;
+        {   uzstd__u8 *t = cx->tmp, *tend = cx->tmp + cx->tmp_cap;
             size_t sz = uzstd__lit_section(cx, t, (size_t)(tend - t));
             if (sz) {
                 t += sz;
@@ -652,15 +650,22 @@ UZSTD_LINKAGE size_t uzstd_compress(void *dst_v, size_t dst_cap, const void *src
     if (src_size == 0) { uzstd__block_header(d, 1, 0, 0); return (size_t)(d + 3 - dst); }
     if (level < 1) level = 1;
     if (level > 9) level = 9;
-    mem = (uzstd__u8*)UZSTD_MALLOC(((1u<<UZSTD__HASH_LOG) + src_size)*4
-                             + UZSTD__MAX_SEQ*sizeof(uzstd__seq) + UZSTD__BLOCK_MAX + UZSTD__TMP_CAP);
+    size_t bcap = src_size < UZSTD__BLOCK_MAX ? src_size : UZSTD__BLOCK_MAX;
+    size_t mseq = bcap/3 + 8, hsize;
+    int hbits = 8;
+    while (hbits < 17 && ((size_t)1 << (hbits-1)) < src_size) hbits++;
+    hsize = (size_t)1 << hbits;
+    cx.hash_shift = 32 - hbits;
+    cx.tmp_cap = bcap + 8192;
+    mem = (uzstd__u8*)UZSTD_MALLOC((hsize + src_size)*4
+                                + mseq*sizeof(uzstd__seq) + bcap + cx.tmp_cap);
     if (!mem) return (size_t)-1;
     cx.htab  = (uzstd__u32*)mem;
-    cx.chain = cx.htab + (1u<<UZSTD__HASH_LOG);
+    cx.chain = cx.htab + hsize;
     cx.seqs  = (uzstd__seq*)(cx.chain + src_size);
-    cx.lit   = (uzstd__u8*)(cx.seqs + UZSTD__MAX_SEQ);
-    cx.tmp   = cx.lit + UZSTD__BLOCK_MAX;
-    UZSTD_MEMSET(cx.htab, 0, (1u<<UZSTD__HASH_LOG)*4);
+    cx.lit   = (uzstd__u8*)(cx.seqs + mseq);
+    cx.tmp   = cx.lit + bcap;
+    UZSTD_MEMSET(cx.htab, 0, hsize*4);
     cx.rep[0] = 1; cx.rep[1] = 4; cx.rep[2] = 8;
     {   static const int depths[9] = {1,2,4,8,16,32,48,64,96};
         cx.depth = depths[level-1];
